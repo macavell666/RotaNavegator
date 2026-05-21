@@ -1,6 +1,6 @@
 {
-"name": "Planejador de Viagens Pro",
-"short_name": "ViagemPro",
+"name": "RotaNavegator",
+"short_name": "RotaNavegator",
 "description": "Planejador de trajetos inteligente",
 "start_url": "index.html",
 "display": "standalone",
