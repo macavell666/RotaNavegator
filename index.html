@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Planejador de Viagens Pro</title>
+    
+    <meta name="theme-color" content="#2563eb">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        body, html { height: 100%; margin: 0; padding: 0; overflow: hidden; background: #f8fafc; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        
+        .ui-sidebar {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            bottom: 16px;
+            width: 380px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            z-index: 1000;
+            border-radius: 20px;
+            box-shadow: 0 12px 48px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(255,255,255,0.3);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @media (max-width: 768px) {
+            .ui-sidebar { 
+                width: calc(100% - 20px); 
+                max-height: 65vh;
+                padding: 12px !important;
+                top: auto; 
+                bottom: 10px; 
+                left: 10px; 
+                right: 10px;
+            }
+            .sidebar-collapsed {
+                transform: translateY(calc(100% - 60px));
+            }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        
+        .search-container { position: relative; width: 100%; display: flex; align-items: center; }
+        .search-input { width: 100%; padding: 10px 45px 10px 12px; background: rgba(255,255,255,0.7); border-radius: 12px; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; outline: none; }
+        .search-input:focus { border-color: #3b82f6; background: white; }
+        .search-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        .icon-vehicle { display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .flipped-icon { transform: scaleX(-1); }
+        .icon-dot { width: 18px; height: 18px; background: #2563eb; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(37, 99, 235, 0.6); }
+
+        .vehicle-option { cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: rgba(255,255,255,0.5); }
+        .vehicle-option.active { border-color: #3b82f6; background: white; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
+
+        .btn-toggle { display: none; }
+        @media (max-width: 768px) {
+            .btn-toggle { 
+                display: block; 
+                width: 40px; 
+                height: 4px; 
+                background: #cbd5e1; 
+                margin: 0 auto 10px auto; 
+                border-radius: 2px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="uiPanel" class="ui-sidebar p-4 md:p-6">
+        <div class="btn-toggle" onclick="toggleSidebar()"></div>
+
+        <header class="mb-4 flex justify-between items-center">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-base font-black text-blue-600 leading-none">VIAGEM PRO</h1>
+                    <span class="bg-green-100 text-green-700 text-[8px] font-bold px-2 py-0.5 rounded-full uppercase">Asfalto</span>
+                </div>
+            </div>
+            <button onclick="cycleMapStyle()" class="text-[10px] font-bold bg-white/70 px-3 py-2 rounded-lg hover:bg-white uppercase border border-black/5">🗺 Mapa</button>
+        </header>
+
+        <section class="mb-4">
+            <div class="search-container">
+                <input type="text" id="searchInput" class="search-input" placeholder="Buscar cidade..." onkeydown="if(event.key==='Enter') { searchPlace(); minimizeIfMobile(); }">
+                <button onclick="searchPlace(); minimizeIfMobile();" class="search-btn">🔍</button>
+            </div>
+            <button id="addBtn" onclick="addWaypoint()" class="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl font-bold text-xs hidden shadow-lg transition active:scale-95">
+                + Adicionar ao Trajeto
+            </button>
+        </section>
+
+        <!-- CAIXA DE VEÍCULOS MAIS ESTREITA (GRID GAP E PADDING REDUZIDOS) -->
+        <section class="mb-4">
+            <h2 class="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Veículo</h2>
+            <div class="grid grid-cols-3 gap-1"> 
+                <div onclick="setVehicle('dot')" id="v-dot" class="vehicle-option active p-1 rounded-xl flex flex-col items-center justify-center">
+                    <div class="icon-dot mb-1"></div>
+                    <span class="text-[7px] font-bold">GPS</span>
+                </div>
+                <div onclick="setVehicle('car')" id="v-car" class="vehicle-option p-1 rounded-xl flex flex-col items-center justify-center">
+                    <span class="text-lg mb-1 flipped-icon">🚗</span>
+                    <span class="text-[7px] font-bold">CARRO</span>
+                </div>
+                <div onclick="setVehicle('moto')" id="v-moto" class="vehicle-option p-1 rounded-xl flex flex-col items-center justify-center">
+                    <span class="text-lg mb-1 flipped-icon">🏍️</span>
+                    <span class="text-[7px] font-bold">MOTO</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- CAMPO DO ROTEIRO DESTACADO COM BORDA -->
+        <section class="flex-1 overflow-hidden flex flex-col mb-4">
+            <h2 class="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Roteiro</h2>
+            <div id="waypointList" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 max-h-[30vh] border-2 border-blue-200 bg-white/90 p-2 rounded-xl">
+                <div class="text-center py-6 opacity-40"><p class="text-xs">Nenhum local.</p></div>
+            </div>
+        </section>
+
+        <section class="space-y-2 border-t pt-4">
+            <div class="flex items-center justify-between bg-white/50 p-2 rounded-xl border border-black/5">
+                <span class="text-[9px] font-black text-slate-500 uppercase">Duração:</span>
+                <div class="flex items-center gap-1">
+                    <input type="number" id="animDuration" value="13" class="w-10 bg-transparent text-right font-bold text-blue-600 outline-none text-sm">
+                    <span class="text-[9px] text-slate-400 font-bold">seg</span>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-2">
+                <button id="playBtn" onclick="startAnimation()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-black shadow-lg hover:bg-blue-700 transition active:scale-95 text-sm uppercase tracking-wider">Iniciar Viagem</button>
+                <div class="grid grid-cols-3 gap-2">
+                    <button id="stopBtn" onclick="stopAnimation()" class="hidden bg-orange-100 text-orange-700 py-2 rounded-lg font-bold text-[10px]">■ PARAR</button>
+                    <button onclick="resetAnimation()" class="bg-slate-200/50 text-slate-600 py-2 rounded-lg font-bold text-[10px]">↺ RESET</button>
+                    <button id="exportBtn" onclick="recordVideo()" class="bg-green-600 text-white py-2 rounded-lg font-bold text-[10px]">📹 VÍDEO</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+        // ... (Mantém toda a sua lógica JavaScript original inalterada)
+        const map = L.map('map', { zoomControl: false, renderer: L.canvas() }).setView([-23.42, -51.93], 7);
+        const layers = {
+            standard: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }),
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' }),
+            topo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '© Topo' })
+        };
+        let currentStyle = 'standard';
+        layers.standard.addTo(map);
+
+        function cycleMapStyle() { map.removeLayer(layers[currentStyle]); const styles = Object.keys(layers); currentStyle = styles[(styles.indexOf(currentStyle) + 1) % styles.length]; layers[currentStyle].addTo(map); }
+        function toggleSidebar() { document.getElementById('uiPanel').classList.toggle('sidebar-collapsed'); }
+        function minimizeIfMobile() { if (window.innerWidth <= 768) { const panel = document.getElementById('uiPanel'); if (!panel.classList.contains('sidebar-collapsed')) panel.classList.add('sidebar-collapsed'); } }
+
+        let waypoints = [], mapMarkers = [], previewMarker = null, animationPath = [], isAnimating = false, animationStartTime = 0, currentProgress = 0, pauseEvent = null, vehicleType = 'dot', totalDistance = 0, mediaRecorder, recordedChunks = [];
+        const polyline = L.polyline([], { color: '#2563eb', weight: 6, opacity: 0.8, lineJoin: 'round' }).addTo(map);
+        const carMarker = L.marker([0, 0], { icon: L.divIcon({ className: 'icon-vehicle', html: '<div class="icon-dot"></div>', iconSize: [24, 24], iconAnchor: [12, 12] }), zIndexOffset: 1000 });
+
+        function setVehicle(type) {
+            vehicleType = type;
+            document.querySelectorAll('.vehicle-option').forEach(opt => opt.classList.remove('active'));
+            document.getElementById(`v-${type}`).classList.add('active');
+            let htmlContent = type === 'dot' ? '<div class="icon-dot"></div>' : type === 'car' ? '<span class="flipped-icon">🚗</span>' : '<span class="flipped-icon">🏍️</span>';
+            carMarker.setIcon(L.divIcon({ className: 'icon-vehicle', html: htmlContent, iconSize: [24, 24], iconAnchor: [12, 12] }));
+        }
+
+        async function searchPlace() {
+            const query = document.getElementById('searchInput').value;
+            if (!query) return;
+            if (previewMarker) { map.removeLayer(previewMarker); previewMarker = null; }
+            document.getElementById('addBtn').classList.add('hidden');
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    const first = data[0];
+                    const lat = parseFloat(first.lat);
+                    const lon = parseFloat(first.lon);
+                    previewMarker = L.marker([lat, lon]).addTo(map);
+                    previewMarker.tempData = { name: first.display_name.split(',')[0], lat, lng: lon };
+                    map.flyTo([lat, lon], 14, { duration: 1.5 });
+                    document.getElementById('addBtn').classList.remove('hidden');
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function addWaypoint() {
+            if (!previewMarker) return;
+            const data = { ...previewMarker.tempData, id: Date.now(), pause: true, visited: false };
+            waypoints.push(data);
+            const m = L.marker([data.lat, data.lng]).addTo(map).bindPopup(`<b>${data.name}</b>`);
+            mapMarkers.push({ id: data.id, marker: m });
+            map.removeLayer(previewMarker);
+            previewMarker = null;
+            document.getElementById('addBtn').classList.add('hidden');
+            document.getElementById('searchInput').value = '';
+            updateUI();
+            calculateRoute();
+        }
+
+        function removeWaypoint(id) {
+            stopAnimation(); 
+            waypoints = waypoints.filter(w => w.id !== id);
+            const mObj = mapMarkers.find(m => m.id === id);
+            if (mObj) map.removeLayer(mObj.marker);
+            mapMarkers = mapMarkers.filter(m => m.id !== id);
+            updateUI();
+            calculateRoute();
+        }
+
+        function updateUI() {
+            const container = document.getElementById('waypointList');
+            if (waypoints.length === 0) {
+                container.innerHTML = '<div class="text-center py-6 opacity-40"><p class="text-xs">Nenhum local.</p></div>';
+                return;
+            }
+            container.innerHTML = waypoints.map(wp => `
+                <div class="bg-white/80 p-2 rounded-lg border border-black/5 flex flex-col gap-1 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <input type="text" value="${wp.name}" onchange="updateName(${wp.id}, this.value)" class="font-bold text-[11px] text-slate-700 bg-transparent border-none outline-none w-3/4">
+                        <button onclick="removeWaypoint(${wp.id})" class="text-slate-400 hover:text-red-500 font-bold px-1 text-xs">✕</button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" ${wp.pause ? 'checked' : ''} onchange="togglePause(${wp.id})" class="w-3 h-3 rounded">
+                        <span class="text-[8px] font-black text-slate-400 uppercase italic">Parada 3s + Zoom</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateName(id, name) { const wp = waypoints.find(w => w.id === id); if (wp) { wp.name = name; const mObj = mapMarkers.find(m => m.id === id); if (mObj) mObj.marker.bindPopup(`<b>${name}</b>`); } }
+        function togglePause(id) { const wp = waypoints.find(w => w.id === id); if (wp) wp.pause = !wp.pause; }
+
+        async function calculateRoute() {
+            if (waypoints.length < 2) { polyline.setLatLngs([]); if (map.hasLayer(carMarker)) map.removeLayer(carMarker); animationPath = []; currentProgress = 0; totalDistance = 0; return; }
+            const query = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${query}?overview=full&geometries=geojson`);
+                const data = await res.json();
+                if (data.routes && data.routes[0]) {
+                    animationPath = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    totalDistance = data.routes[0].distance / 1000;
+                    polyline.setLatLngs(animationPath);
+                    map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+                    carMarker.setLatLng(animationPath[0]).addTo(map);
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function animate(timestamp) {
+            if (!isAnimating || animationPath.length < 2) return;
+            if (pauseEvent) {
+                if (timestamp - pauseEvent.start < 3000) { requestAnimationFrame(animate); return; }
+                else { polyline.setStyle({ weight: 6 }); map.fitBounds(polyline.getBounds(), { padding: [50, 50], duration: 1.5 }); animationStartTime += (timestamp - pauseEvent.start); pauseEvent = null; }
+            }
+            const totalDuration = parseFloat(document.getElementById('animDuration').value) * 1000;
+            const elapsed = timestamp - animationStartTime;
+            const progress = Math.min(elapsed / totalDuration, 1);
+            currentProgress = progress;
+            const pointIndex = Math.floor(progress * (animationPath.length - 1));
+            const currentPos = animationPath[pointIndex];
+            if (currentPos) {
+                carMarker.setLatLng(currentPos);
+                if (!pauseEvent) map.panTo(currentPos, { animate: false });
+                waypoints.forEach(wp => {
+                    if (wp.pause && !wp.visited) {
+                        const dist = map.distance(currentPos, [wp.lat, wp.lng]);
+                        if (dist < 200) { wp.visited = true; pauseEvent = { start: timestamp }; polyline.setStyle({ weight: 2 }); map.flyTo([wp.lat, wp.lng], 16, { duration: 1.5 }); const mObj = mapMarkers.find(m => m.id === wp.id); if (mObj) mObj.marker.openPopup(); }
+                    }
+                });
+            }
+            if (progress < 1) requestAnimationFrame(animate);
+            else { stopAnimation(); if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop(); else alert("Viagem Concluída! Total percorrido: " + totalDistance.toFixed(1) + " km."); resetAnimation(); }
+        }
+
+        function startAnimation() { if (waypoints.length < 2 || animationPath.length < 2) return; isAnimating = true; document.getElementById('playBtn').innerText = "VIAJANDO..."; document.getElementById('stopBtn').classList.remove('hidden'); if (window.innerWidth < 768) toggleSidebar(); const duration = parseFloat(document.getElementById('animDuration').value) * 1000; animationStartTime = performance.now() - (currentProgress * duration); requestAnimationFrame(animate); }
+        function stopAnimation() { isAnimating = false; document.getElementById('playBtn').innerText = "CONTINUAR"; document.getElementById('stopBtn').classList.add('hidden'); }
+        function resetAnimation() { stopAnimation(); currentProgress = 0; pauseEvent = null; waypoints.forEach(w => w.visited = false); polyline.setStyle({ weight: 6 }); document.getElementById('playBtn').innerText = "INICIAR VIAGEM"; if (animationPath.length > 0) { carMarker.setLatLng(animationPath[0]); map.fitBounds(polyline.getBounds(), { padding: [30, 30] }); } }
+
+        async function recordVideo() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera; const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
+            if (isMobile) { const isAndroid = /android/i.test(userAgent); alert(isAndroid ? "Para gravar a viagem no Android:\n1. Abra o painel de configurações rápidas.\n2. Toque em 'Gravação de tela' ou 'Gravador de tela'.\n3. Inicie a gravação, volte ao app e inicie a viagem.\n4. Quando terminar, pare a gravação pelo painel de notificações." : "Para gravar a viagem no iPhone (iOS):\n1. Adicione 'Gravação da Tela' à Central de Controle em Ajustes.\n2. Deslize para abrir a Central de Controle e toque no botão de gravação (círculo).\n3. Inicie a viagem no app.\n4. Para parar, toque na barra vermelha no topo da tela."); return; }
+            if (waypoints.length < 2) return alert("Adicione pelo menos 2 cidades.");
+            try {
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "never" }, audio: false });
+                resetAnimation(); recordedChunks = []; mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+                mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+                mediaRecorder.onstop = () => { const blob = new Blob(recordedChunks, { type: 'video/webm' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'viagem_pro_animacao.webm'; a.click(); stream.getTracks().forEach(track => track.stop()); alert("Vídeo exportado com sucesso!"); };
+                mediaRecorder.start(); startAnimation();
+            } catch (err) { console.error("Erro ao gravar:", err); alert("Para gravar, você precisa selecionar a aba do navegador e permitir a captura."); }
+        }
+    </script>
+</body>
+</html>
