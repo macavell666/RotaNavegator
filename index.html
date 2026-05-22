@@ -409,7 +409,7 @@ async function recordVideo() {
     const userAgent = navigator.userAgent || navigator.vendor || window.opera; 
     const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
     
-    if (isMobile) { return; }
+    if (isMobile) { const isAndroid = /android/i.test(userAgent); alert(isAndroid ? "Para gravar a viagem no Android:\n1. Abra o painel de configurações rápidas.\n2. Toque em 'Gravação de tela' ou 'Gravador de tela'.\n3. Inicie a gravação, volte ao app e inicie a viagem.\n4. Quando terminar, pare a gravação pelo painel de notificações." : "Para gravar a viagem no iPhone (iOS):\n1. Adicione 'Gravação da Tela' à Central de Controle em Ajustes.\n2. Deslize para abrir a Central de Controle e toque no botão de gravação (círculo).\n3. Inicie a viagem no app.\n4. Para parar, toque na barra vermelha no topo da tela."); return; }
     if (waypoints.length < 2) return alert("Adicione pelo menos 2 cidades.");
     
     try {
