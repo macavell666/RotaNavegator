@@ -58,7 +58,14 @@
         .search-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
         .icon-vehicle { display: flex; align-items: center; justify-content: center; font-size: 24px; }
-        .flipped-icon { transform: scaleX(-1); }
+        
+        /* ALTERAÇÃO: O transform agora passa a aceitar a nossa variável dinâmica */
+        .flipped-icon { 
+            transform: var(--vehicle-direction, scaleX(-1)); 
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+        
         .icon-dot { width: 18px; height: 18px; background: #2563eb; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(37, 99, 235, 0.6); }
 
         .vehicle-option { cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: rgba(255,255,255,0.5); }
@@ -102,7 +109,6 @@
             </button>
         </section>
 
-        <!-- CAIXA DE VEÍCULOS MAIS ESTREITA (GRID GAP E PADDING REDUZIDOS) -->
         <section class="mb-4">
             <h2 class="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Veículo</h2>
             <div class="grid grid-cols-3 gap-1"> 
@@ -121,7 +127,6 @@
             </div>
         </section>
 
-        <!-- CAMPO DO ROTEIRO DESTACADO COM BORDA -->
         <section class="flex-1 overflow-hidden flex flex-col mb-4">
             <h2 class="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Roteiro</h2>
             <div id="waypointList" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 max-h-[30vh] border-2 border-blue-200 bg-white/90 p-2 rounded-xl">
@@ -152,7 +157,6 @@
     <div id="map"></div>
 
     <script>
-        // ... (Mantém toda a sua lógica JavaScript original inalterada)
         const map = L.map('map', { zoomControl: false, renderer: L.canvas() }).setView([-23.42, -51.93], 7);
         const layers = {
             standard: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }),
@@ -261,6 +265,16 @@
             } catch (e) { console.error(e); }
         }
 
+        /* ADDED: Nova função para detectar se a rota está indo para a direita ou esquerda */
+        function getDirectionTransform(currentPos, nextPos) {
+            // Se a longitude final for maior que a inicial, o trajeto está avançando para a DIREITA
+            if (nextPos[1] > currentPos[1]) {
+                return 'scaleX(-1)'; // Espelha o emoji original (que olha para a esquerda) para a direita
+            } else {
+                return 'scaleX(1)';  // Mantém o emoji original olhando para a esquerda
+            }
+        }
+
         function animate(timestamp) {
             if (!isAnimating || animationPath.length < 2) return;
             if (pauseEvent) {
@@ -273,8 +287,24 @@
             currentProgress = progress;
             const pointIndex = Math.floor(progress * (animationPath.length - 1));
             const currentPos = animationPath[pointIndex];
+            
             if (currentPos) {
                 carMarker.setLatLng(currentPos);
+                
+                /* ALTERAÇÃO: Aplica a inversão dinâmica Direita/Esquerda sem rotacionar em graus para não capotar */
+                if (pointIndex < animationPath.length - 1) {
+                    const nextPos = animationPath[pointIndex + 1];
+                    const transformStyle = getDirectionTransform(currentPos, nextPos);
+                    
+                    const markerElement = carMarker.getElement();
+                    if (markerElement) {
+                        const iconSpan = markerElement.querySelector('.flipped-icon');
+                        if (iconSpan) {
+                            iconSpan.style.setProperty('--vehicle-direction', transformStyle);
+                        }
+                    }
+                }
+
                 if (!pauseEvent) map.panTo(currentPos, { animate: false });
                 waypoints.forEach(wp => {
                     if (wp.pause && !wp.visited) {
@@ -289,193 +319,88 @@
 
         function startAnimation() { if (waypoints.length < 2 || animationPath.length < 2) return; isAnimating = true; document.getElementById('playBtn').innerText = "VIAJANDO..."; document.getElementById('stopBtn').classList.remove('hidden'); if (window.innerWidth < 768) toggleSidebar(); const duration = parseFloat(document.getElementById('animDuration').value) * 1000; animationStartTime = performance.now() - (currentProgress * duration); requestAnimationFrame(animate); }
         function stopAnimation() { isAnimating = false; document.getElementById('playBtn').innerText = "CONTINUAR"; document.getElementById('stopBtn').classList.add('hidden'); }
-        function resetAnimation() { stopAnimation(); currentProgress = 0; pauseEvent = null; waypoints.forEach(w => w.visited = false); polyline.setStyle({ weight: 6 }); document.getElementById('playBtn').innerText = "INICIAR VIAGEM"; if (animationPath.length > 0) { carMarker.setLatLng(animationPath[0]); map.fitBounds(polyline.getBounds(), { padding: [30, 30] }); } }
-
-    /**
-    async function recordVideo() {
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera; 
-    const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
-    
-    if (isMobile) { 
-        // ... (mantém o seu alerta original para mobile)
-        return; 
-    }
-    
-    if (waypoints.length < 2) return alert("Adicione pelo menos 2 cidades.");
-    
-    try {
-        // 1. Solicitamos a captura com configurações de alta qualidade de imagem
-        const stream = await navigator.mediaDevices.getDisplayMedia({ 
-            video: { 
-                cursor: "never",
-                frameRate: { ideal: 30, max: 60 }, // Garante fluidez no mapa
-                width: { ideal: 1920 },            // Força resolução Full HD se disponível
-                height: { ideal: 1080 }
-            }, 
-            audio: false 
-        });
         
-        resetAnimation(); 
-        recordedChunks = []; 
-
-        // 2. Mudamos o codec para MP4/H.264 com um Bitrate alto (15 Mbps) para não pixelar o mapa
-        let options = { mimeType: 'video/mp4; codecs=avc1.42E01E' };
-        
-        // Caso o navegador não suporte MP4 nativo na gravação (ex: Firefox antigo), 
-        // ele usa o WebM de alta qualidade como plano de fundo.
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-            options = { mimeType: 'video/webm; codecs=vp9' };
+        function resetAnimation() { 
+            stopAnimation(); 
+            currentProgress = 0; 
+            pauseEvent = null; 
+            waypoints.forEach(w => w.visited = false); 
+            polyline.setStyle({ weight: 6 }); 
+            document.getElementById('playBtn').innerText = "INICIAR VIAGEM"; 
+            if (animationPath.length > 0) { 
+                carMarker.setLatLng(animationPath[0]); 
+                
+                /* ALTERAÇÃO: Retorna o veículo para a orientação padrão inicial ao resetar */
+                const markerElement = carMarker.getElement();
+                if (markerElement) {
+                    const iconSpan = markerElement.querySelector('.flipped-icon');
+                    if (iconSpan) iconSpan.style.setProperty('--vehicle-direction', 'scaleX(-1)');
+                }
+                map.fitBounds(polyline.getBounds(), { padding: [30, 30] }); 
+            } 
         }
-        
-        // Força o uso de banda alta para gravar cada detalhe das linhas e fontes
-        options.videoBitsPerSecond = 15000000; // 15 Mbps (Qualidade excelente para edição)
 
-        mediaRecorder = new MediaRecorder(stream, options);
-        
-        mediaRecorder.ondataavailable = (e) => { 
-            if (e.data.size > 0) recordedChunks.push(e.data); 
-        };
-        
-        mediaRecorder.onstop = () => {
-            const extension = options.mimeType.includes('mp4') ? 'mp4' : 'webm';
-            const blob = new Blob(recordedChunks, { type: options.mimeType }); 
-            const url = URL.createObjectURL(blob); 
-            const a = document.createElement('a'); 
-            a.href = url; 
-            a.download = `viagem_animacao.${extension}`; 
-            a.click(); 
-            stream.getTracks().forEach(track => track.stop()); 
-            alert("Vídeo exportado com sucesso!"); 
-        };
-        
-        mediaRecorder.start(); 
-        startAnimation();
-        
-    } catch (err) { 
-        console.error("Erro ao gravar:", err); 
-        alert("Para gravar, você precisa selecionar a aba do navegador e permitir a captura."); 
-    }
-}*/
-/* nova atualizacao de video com qualidade máxima
-async function recordVideo() {
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera; const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
-    if (isMobile) { return; }
-    if (waypoints.length < 2) return alert("Adicione pelo menos 2 cidades.");
-    
-    try {
-        // Forçamos o navegador a capturar em 4K (3840x2160) se o monitor suportar, ou no máximo da tela sem compressão
-        const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
-            video: { 
-                cursor: "never",
-                width: { ideal: 3840, max: 3840 },
-                height: { ideal: 2160, max: 2160 },
-                frameRate: { ideal: 60 } // Força 60 FPS para suavidade total
-            }, 
-            audio: false 
-        });
-        
-        resetAnimation(); 
-        recordedChunks = []; 
-
-        // Forçamos o perfil mais alto do codec de vídeo (High Profile) com Bitrate de nível de cinema (40 Mbps)
-        let options = { 
-            mimeType: 'video/webm; codecs=vp9', // VP9 em altíssimo bitrate costuma ser mais nítido no Chrome que o AVC1
-            videoBitsPerSecond: 40000000        // 40 Megabits por segundo (Garante nitidez em cada pixel)
-        };
-
-        mediaRecorder = new MediaRecorder(displayStream, options);
-        
-        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: options.mimeType }); 
-            const url = URL.createObjectURL(blob); 
-            const a = document.createElement('a'); 
-            a.href = url; 
-            a.download = 'viagem_alta_qualidade.webm'; 
-            a.click(); 
-            displayStream.getTracks().forEach(track => track.stop()); 
-            alert("Vídeo exportado com qualidade máxima!"); 
-        };
-        
-        mediaRecorder.start(); 
-        startAnimation();
-    } catch (err) { 
-        console.error(err); 
-        alert("Erro na captura de alta qualidade."); 
-    }
-}
-*/
-async function recordVideo() {
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera; 
-    const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
-    
-    if (isMobile) { const isAndroid = /android/i.test(userAgent); alert(isAndroid ? "Para gravar a viagem no Android:\n1. Abra o painel de configurações rápidas.\n2. Toque em 'Gravação de tela' ou 'Gravador de tela'.\n3. Inicie a gravação, volte ao app e inicie a viagem.\n4. Quando terminar, pare a gravação pelo painel de notificações." : "Para gravar a viagem no iPhone (iOS):\n1. Adicione 'Gravação da Tela' à Central de Controle em Ajustes.\n2. Deslize para abrir a Central de Controle e toque no botão de gravação (círculo).\n3. Inicie a viagem no app.\n4. Para parar, toque na barra vermelha no topo da tela."); return; }
-    if (waypoints.length < 2) return alert("Adicione pelo menos 2 cidades.");
-    
-    try {
-        const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
-            video: { 
-                cursor: "never",
-                width: { ideal: 3840, max: 3840 },
-                height: { ideal: 2160, max: 2160 },
-                frameRate: { ideal: 60 }
-            }, 
-            audio: false 
-        });
-        
-        resetAnimation(); 
-        recordedChunks = []; 
-
-        let options = { 
-            mimeType: 'video/webm; codecs=vp9', 
-            videoBitsPerSecond: 40000000        
-        };
-
-        mediaRecorder = new MediaRecorder(displayStream, options);
-        
-        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: options.mimeType }); 
-            const url = URL.createObjectURL(blob); 
-            const a = document.createElement('a'); 
-            a.href = url; 
-            a.download = 'viagem_alta_qualidade.webm'; 
-            a.click(); 
-            displayStream.getTracks().forEach(track => track.stop()); 
+        async function recordVideo() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera; 
+            const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
             
-            // Reexibe o painel exatamente como ele estava antes da gravação
-            esconderOuAbrirPainel(false);
+            if (isMobile) { const isAndroid = /android/i.test(userAgent); alert(isAndroid ? "Para gravar a viagem no Android:\n1. Abra o painel de configurações rápidas.\n2. Toque em 'Gravação de tela' ou 'Gravador de tela'.\n3. Inicie a gravação, volte ao app e inicie a viagem.\n4. Quando terminar, pare a gravação pelo painel de notificações." : "Para gravar a viagem no iPhone (iOS):\n1. Adicione 'Gravação da Tela' à Central de Controle em Ajustes.\n2. Deslize para abrir a Central de Controle e toque no botão de gravação (círculo).\n3. Inicie a viagem no app.\n4. Para parar, toque na barra vermelha no topo da tela."); return; }
+            if (waypoints.length < 2) return alert("Adicione pelo menos 2 cidades.");
             
-            alert("Vídeo exportado com qualidade máxima!"); 
-        };
-        
-        mediaRecorder.start(); 
-        
-        // Esconde o painel de forma segura antes de iniciar a animação
-        esconderOuAbrirPainel(true);
+            try {
+                const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
+                    video: { 
+                        cursor: "never",
+                        width: { ideal: 3840, max: 3840 },
+                        height: { ideal: 2160, max: 2160 },
+                        frameRate: { ideal: 60 }
+                    }, 
+                    audio: false 
+                });
+                
+                resetAnimation(); 
+                recordedChunks = []; 
 
-        startAnimation();
-    } catch (err) { 
-        console.error(err); 
-        alert("Erro na captura de alta qualidade."); 
-    }
-}
+                let options = { 
+                    mimeType: 'video/webm; codecs=vp9', 
+                    videoBitsPerSecond: 40000000        
+                };
 
-// NOVA FUNÇÃO AUXILIAR CORRIGIDA (Sem quebrar suas classes CSS)
-function esconderOuAbrirPainel(deveEsconder) {
-    const panel = document.getElementById('uiPanel');
-    if (!panel) return;
+                mediaRecorder = new MediaRecorder(displayStream, options);
+                
+                mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: options.mimeType }); 
+                    const url = URL.createObjectURL(blob); 
+                    const a = document.createElement('a'); 
+                    a.href = url; 
+                    a.download = 'viagem_alta_qualidade.webm'; 
+                    a.click(); 
+                    displayStream.getTracks().forEach(track => track.stop()); 
+                    esconderOuAbrirPainel(false);
+                    alert("Vídeo exportado com qualidade máxima!"); 
+                };
+                
+                mediaRecorder.start(); 
+                esconderOuAbrirPainel(true);
+                startAnimation();
+            } catch (err) { 
+                console.error(err); 
+                alert("Erro na captura de alta qualidade."); 
+            }
+        }
 
-    if (deveEsconder) {
-        // Torna o painel totalmente invisível para o vídeo sem alterar as classes de colapso
-        panel.style.opacity = '0';
-        panel.style.pointerEvents = 'none'; // Impede cliques acidentais enquanto invisível
-    } else {
-        // Restaura a visibilidade mantendo o estado que o usuário deixou
-        panel.style.opacity = '';
-        panel.style.pointerEvents = '';
-    }
-}
+        function esconderOuAbrirPainel(deveEsconder) {
+            const panel = document.getElementById('uiPanel');
+            if (!panel) return;
+            if (deveEsconder) {
+                panel.style.opacity = '0';
+                panel.style.pointerEvents = 'none'; 
+            } else {
+                panel.style.opacity = '';
+                panel.style.pointerEvents = '';
+            }
+        }
     </script>
 </body>
 </html>
