@@ -128,7 +128,14 @@
         </section>
 
         <section class="flex-1 overflow-hidden flex flex-col mb-4">
-            <h2 class="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Roteiro</h2>
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    Roteiro
+                </h2>
+                <span id="totalDistanceLabel" class="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    0 km
+                </span>
+            </div>
             <div id="waypointList" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 max-h-[30vh] border-2 border-blue-200 bg-white/90 p-2 rounded-xl">
                 <div class="text-center py-6 opacity-40"><p class="text-xs">Nenhum local.</p></div>
             </div>
@@ -163,6 +170,13 @@
             satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' }),
             topo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '© Topo' })
         };
+        //altera para mapa mais clean
+        // const layers = {
+        //         standard: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap &copy; CARTO',subdomains:'abcd', maxZoom: 20}),
+        //         satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution: 'Tiles &copy; Esri'}),
+        //         topo: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution: '&copy; OpenStreetMap &copy; CARTO',subdomains: 'abcd',maxZoom: 20})
+        // };
+
         let currentStyle = 'standard';
         layers.standard.addTo(map);
 
@@ -250,19 +264,44 @@
         function togglePause(id) { const wp = waypoints.find(w => w.id === id); if (wp) wp.pause = !wp.pause; }
 
         async function calculateRoute() {
-            if (waypoints.length < 2) { polyline.setLatLngs([]); if (map.hasLayer(carMarker)) map.removeLayer(carMarker); animationPath = []; currentProgress = 0; totalDistance = 0; return; }
-            const query = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
-            try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${query}?overview=full&geometries=geojson`);
-                const data = await res.json();
-                if (data.routes && data.routes[0]) {
-                    animationPath = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-                    totalDistance = data.routes[0].distance / 1000;
-                    polyline.setLatLngs(animationPath);
-                    map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
-                    carMarker.setLatLng(animationPath[0]).addTo(map);
+
+            if (waypoints.length < 2) {
+                polyline.setLatLngs([]);
+
+                if (map.hasLayer(carMarker)) {
+                    map.removeLayer(carMarker);
                 }
-            } catch (e) { console.error(e); }
+                animationPath = [];
+                currentProgress = 0;
+                totalDistance = 0;
+                document.getElementById('totalDistanceLabel').innerText = '0 km';
+                return;
+            }
+
+            query = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
+
+                try {
+
+                    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${query}?overview=full&geometries=geojson`);
+
+                    const data = await res.json();
+
+                    if (data.routes && data.routes[0]) {
+
+                        animationPath = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+
+                        totalDistance = data.routes[0].distance / 1000; 
+
+                        document.getElementById('totalDistanceLabel').innerText = totalDistance.toFixed(1) + ' km';
+
+                        polyline.setLatLngs(animationPath);
+
+                        map.fitBounds(polyline.getBounds(), { padding: [30, 30]});
+                        carMarker.setLatLng(animationPath[0]).addTo(map);
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
         }
 
         /* ADDED: Nova função para detectar se a rota está indo para a direita ou esquerda */
@@ -314,7 +353,8 @@
                 });
             }
             if (progress < 1) requestAnimationFrame(animate);
-            else { stopAnimation(); if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop(); else alert("Viagem Concluída! Total percorrido: " + totalDistance.toFixed(1) + " km."); resetAnimation(); }
+            else { stopAnimation(); if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop(); else alert("Fim da viagem"); resetAnimation(); }
+            
         }
 
         function startAnimation() { if (waypoints.length < 2 || animationPath.length < 2) return; isAnimating = true; document.getElementById('playBtn').innerText = "VIAJANDO..."; document.getElementById('stopBtn').classList.remove('hidden'); if (window.innerWidth < 768) toggleSidebar(); const duration = parseFloat(document.getElementById('animDuration').value) * 1000; animationStartTime = performance.now() - (currentProgress * duration); requestAnimationFrame(animate); }
@@ -386,7 +426,7 @@
                 startAnimation();
             } catch (err) { 
                 console.error(err); 
-                alert("Erro na captura de alta qualidade."); 
+                alert("Nda Capturado."); 
             }
         }
 
